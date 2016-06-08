@@ -1,14 +1,13 @@
 import os
 import socket
-import threading
-import resolve
-import httplib
-import logging
 import re
 import ssl
-import urlparse
-import StringIO
-from common import silent_fail
+from StringIO import StringIO
+from six.moves import http_client as httplib
+from six.moves import urllib_parse as urlparse
+
+from cachebrowser.common import silent_fail, logger
+from cachebrowser import dns
 
 
 def request(url, method=None, target=None, cachebrowse=None, headers=None, port=None, scheme='http', raw_request=None):
@@ -30,9 +29,12 @@ def request(url, method=None, target=None, cachebrowse=None, headers=None, port=
     path = parsed_url.path or '/'
 
     if target:
-        target, cachebrowsed = resolve.resolve_host(target, use_cachebrowser_db=cachebrowse)
+        target, cachebrowsed = dns.resolve_host(target, use_cachebrowser_db=cachebrowse)
     else:
-        target, cachebrowsed = resolve.resolve_host(parsed_url.hostname, use_cachebrowser_db=cachebrowse)
+        target, cachebrowsed = dns.resolve_host(parsed_url.hostname, use_cachebrowser_db=cachebrowse)
+
+    if port is None and parsed_url.port:
+        port = parsed_url.port
 
     # if not cachebrowsed:
     # target = parsed_url.hostname
@@ -40,6 +42,7 @@ def request(url, method=None, target=None, cachebrowse=None, headers=None, port=
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     if parsed_url.scheme == 'https':
         sock = ssl.wrap_socket(sock)
+
     sock.connect((target, port or (443 if parsed_url.scheme == 'https' else 80)))
 
     if raw_request is None:
@@ -65,7 +68,7 @@ def request(url, method=None, target=None, cachebrowse=None, headers=None, port=
 class HttpResponse(httplib.HTTPResponse):
     def __init__(self, sock, *args, **kwargs):
         httplib.HTTPResponse.__init__(self, sock, *args, **kwargs)
-        self.header_buffer = StringIO.StringIO()
+        self.header_buffer = StringIO()
 
         class FPWrapper(object):
             def __init__(fself, fp):
@@ -99,7 +102,7 @@ class HttpResponse(httplib.HTTPResponse):
 class HttpRequest(object):
     class Builder(object):
         def __init__(self):
-            self._buffer = StringIO.StringIO()
+            self._buffer = StringIO()
             self._state = 'request'
             self._pos = 0
             self.content_length = 0
@@ -171,7 +174,7 @@ class HttpRequest(object):
 
     def get_raw(self):
         if not self.raw:
-            buff = StringIO.StringIO()
+            buff = StringIO()
             buff.write('%s %s HTTP/1.1\r\n' % (self.method, self.path))
 
             for header in self.headers:
@@ -185,7 +188,7 @@ class HttpRequest(object):
 
 class HttpConnection(object):
     def __init__(self, sock):
-        self._buffer = StringIO.StringIO()
+        self._buffer = StringIO()
         self._socket = sock
         self.url = None
         self.headers = {}
@@ -225,7 +228,7 @@ class HttpConnection(object):
 
         url_param = params.get('v', None)  # e.g. http://www.nbc.com
         if url_param is None or len(url_param) == 0:
-            logging.warning("Skipping %s" % whole_url.strip())
+            logger.warning("Skipping %s" % whole_url.strip())
             return
             # raise ValueError("No request url received in HTTP request")
         self.url = url_param[0]
@@ -245,6 +248,6 @@ class HttpConnection(object):
             self.send(raw_response)
             self._socket.close()
 
-        logging.info("%s %s" % (self.method, self.url))
+        logger.info("%s %s" % (self.method, self.url))
         request(self.url, method=self.method, headers=self.headers, callback=on_response)
 

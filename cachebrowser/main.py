@@ -1,32 +1,30 @@
-from network import ServerRack
-from settings import settings
-from daemon import Daemon
-from gevent import monkey
 import argparse
-import logging
 import sys
 import gevent
-import cli
-import proxy
-import common
+from gevent import monkey
 
-import api
-import models
-import http
+from cachebrowser.network import ServerRack, HttpServer
+from cachebrowser.settings import settings
+from cachebrowser.daemon import Daemon
+from cachebrowser import models, http, cli, api, proxy, common, bootstrap
+from cachebrowser.common import logger
 
 rack = ServerRack()
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="CacheBrowser")
     parser.add_argument('-d', '-daemon', action='store_true', dest='daemon', help="run in daemon mode")
     parser.add_argument('-s', '-socket', dest='socket', help="cachebrowser socket")
+    parser.add_argument('-b', '-bootstrap', nargs="+", dest='local_bootstrap', help="local bootstrap source")
     parser.add_argument('command', nargs='*', default=None, help='A cachebrowser command to execute and exit')
     args = parser.parse_args()
     settings.update_from_args(vars(args))
 
 
 def init_logging():
-    root = logging.getLogger()
+    import logging
+    root = logger
     root.setLevel(logging.DEBUG)
 
     ch = logging.StreamHandler(sys.stdout)
@@ -37,18 +35,19 @@ def init_logging():
 
 
 def load_extensions():
-    import extensions
+    import cachebrowser.extensions
+
 
 def run_cachebrowser():
-    logging.info("Cachebrowser running...")
-    logging.debug("Waiting for connections...")
+    logger.info("Cachebrowser running...")
+    logger.debug("Waiting for connections...")
 
     monkey.patch_all()
 
-    rack.add_server('cli', port=5100, handler=cli.CLIHandler)
-    rack.add_server('api', port=5200, handler=api.APIHandler)
-    rack.add_server('proxy', port=8080, handler=proxy.ProxyConnection)
-    rack.add_server('http', port=9005, handler=http.HttpConnection)
+    rack.create_server('cli', port=5100, handler=cli.CLIHandler)
+    rack.add_server('api', HttpServer(port=5200, handler=api.APIHandler))
+    rack.create_server('proxy', port=8080, handler=proxy.ProxyConnection)
+    rack.create_server('http', port=9005, handler=http.HttpConnection)
 
     common.context['server_rack'] = rack
     load_extensions()
@@ -72,6 +71,7 @@ def main():
     parse_arguments()
     init_logging()
     models.initialize_database(settings['database'])
+    bootstrap.initialize_bootstrapper()
 
     command = settings.get('command', None)
     if command:
@@ -85,4 +85,5 @@ def main():
         run_cachebrowser()
 
 if __name__ == '__main__':
+    __package__ = ''
     main()

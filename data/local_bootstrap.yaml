@@ -1,0 +1,11 @@
+- type: cdn
+  id: cbcdn
+  name: CacheBrowser CDN (Cloudfront)
+  edge_servers:
+    - 54.230.27.22
+    - 54.230.27.181
+
+- type: host
+  name: www.cachebrowser.info
+  ssl: true
+  cdn: cbcdn

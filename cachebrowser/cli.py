@@ -1,14 +1,14 @@
-import logging
-import http
 import shlex
 import re
-from network import Connection
-from models import Host, CDN
 
-import common
+from cachebrowser.bootstrap import bootstrapper, BootstrapError
+from cachebrowser.common import logger
+from cachebrowser.network import ConnectionHandler
+from cachebrowser.models import Host, CDN
+from cachebrowser import http, common
 
 
-class BaseCLIHandler(Connection):
+class BaseCLIHandler(ConnectionHandler):
     def __init__(self, *args, **kwargs):
         super(BaseCLIHandler, self).__init__(*args, **kwargs)
         self._handlers = {}
@@ -30,8 +30,8 @@ class BaseCLIHandler(Connection):
 
         self.handle_command(*args, **kwargs)
 
-    def on_connect(self):
-        logging.debug("New CLI connection established with %s" % str(self.address))
+    def on_connect(self, sock, address):
+        logger.debug("New CLI connection established with %s" % str(self.address))
 
     def handle_command(self, *args, **kwargs):
         try:
@@ -87,18 +87,19 @@ class CLIHandler(BaseCLIHandler):
         self.register_command('list cdn', self.cdn_list)
         self.register_command('get', self.make_request)
 
-    def domain_add(self, host=None):
+    def domain_add(self, hostname=None):
         """
         Activate a host with CacheBrowser
         """
-        if not host:
-            raise InsufficientCommandParametersException('host')
+        if not hostname:
+            raise InsufficientCommandParametersException('hostname')
 
-        result_host = common.add_domain(host)
-        if result_host:
-            self.send_line("Host '%s' activated" % result_host)
-        else:
-            self.send_line("Host '%s' could not be activated, see logs for more information" % host)
+        try:
+            host = bootstrapper.bootstrap(hostname)
+            self.send_line("Host '%s' bootstrapped" % host.hostname)
+        except BootstrapError as e:
+            self.send_line("Host '%s' could not be bootstrapped" % hostname)
+            self.send_line(e.message)
 
     def domain_list(self):
         """
@@ -106,7 +107,7 @@ class CLIHandler(BaseCLIHandler):
         """
         hosts = Host.select()
         for host in hosts:
-            self.send_line("%*s: %s" % (20, host.url, host.cdn.id))
+            self.send_line("%*s: %s" % (20, host.hostname, host.cdn.id))
 
     def cdn_list(self):
         """
